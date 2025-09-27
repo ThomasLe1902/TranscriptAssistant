@@ -1,0 +1,213 @@
+from langchain_google_genai import GoogleGenerativeAI
+from dotenv import load_dotenv
+from typing import List, Dict, Any
+from .chunking import chunk_subtitles
+import concurrent.futures
+
+load_dotenv()
+model = GoogleGenerativeAI(model="gemini-2.5-flash")
+
+def format_timestamp(timestamp: str) -> str:
+    """
+    Chuyển timestamp từ format h:mm:ss.ms thành milliseconds
+    """
+    hours, minutes, seconds = timestamp.split(':')
+    seconds, milliseconds = seconds.split('.')
+
+    total_ms = (int(hours) * 3600 + int(minutes) * 60 + int(seconds)) * 1000 + int(milliseconds)
+    return str(total_ms)
+
+def to_ms_sbv(lines: List[str]) -> List[Dict[str, str]]:
+    """
+    Parse SBV format thành list các dict chứa timestamp và text
+    Hỗ trợ cả format h:mm:ss.ms và milliseconds
+    """
+    subtitles = []
+    i = 0
+    
+    while i < len(lines):
+        line = lines[i].strip()
+        if ',' in line:
+            # Chỉ split dấu phẩy đầu tiên (giữa timestamp)
+            parts = line.split(',', 1)
+            if len(parts) == 2:
+                start_time = parts[0].strip()
+                end_time = parts[1].strip()
+            else:
+                i += 1
+                continue
+            
+            # Kiểm tra xem có phải format milliseconds không (chỉ có số)
+            if start_time.isdigit() and end_time.isdigit():
+                # Format milliseconds - giữ nguyên
+                start_ms = start_time
+                end_ms = end_time
+            elif ':' in start_time and ':' in end_time:
+                # Format h:mm:ss.ms - convert sang milliseconds
+                start_ms = format_timestamp(start_time)
+                end_ms = format_timestamp(end_time)
+            else:
+                # Không phải timestamp hợp lệ, bỏ qua
+                i += 1
+                continue
+            
+            text_lines = []
+            i += 1
+
+            while i < len(lines) and lines[i].strip():
+                text_lines.append(lines[i].strip())
+                i += 1
+            text = ' '.join(text_lines)
+            
+            if text:  # Chỉ thêm nếu có text
+                subtitles.append({
+                    'start_time': start_ms,
+                    'end_time': end_ms,
+                    'text': text
+                })
+        
+        i += 1
+    
+    return subtitles
+
+def get_transcript(file_path: str) -> List[Dict[str, str]]:
+    if file_path.endswith(".sbv"):
+        # Đọc nội dung file thay vì decode file_path
+        with open(file_path, "r", encoding="utf-8", errors="replace") as file:
+            lines = file.readlines()
+        
+        # Parse SBV thành list các subtitle
+        subtitles = to_ms_sbv(lines)
+        return subtitles
+    
+    return []
+
+def grammar_correction_chunk(chunk: Dict[str, int | str]) -> Dict[str, int | str]:
+    """
+    Sửa lỗi ngữ pháp cho một chunk subtitle
+    """
+    import time
+    start_time = time.time()
+    
+    prompt = f"""
+    Sửa lỗi ngữ pháp và cải thiện văn phong cho đoạn text tiếng Việt sau. 
+    Chỉ trả về text đã sửa, không giải thích:
+    
+    {chunk['text']}
+    """
+    
+    try:
+        response = model.invoke(prompt)
+        
+        # Xử lý response có thể là string hoặc object có thuộc tính content
+        if hasattr(response, 'content'):
+            corrected_text = response.content.strip()
+        else:
+            corrected_text = str(response).strip()
+        
+        elapsed = time.time() - start_time
+        print(f"  ✓ Hoàn thành trong {elapsed:.1f}s")
+        
+        return {
+            'start': chunk['start'],
+            'end': chunk['end'],
+            'text': corrected_text
+        }
+    except Exception as e:
+        print(f"  ✗ Lỗi: {e}")
+        # Fallback: trả về text gốc nếu có lỗi
+        return {
+            'start': chunk['start'],
+            'end': chunk['end'],
+            'text': chunk['text']
+        }
+
+def process_chunk_batch(chunk_batch: List[Dict[str, int | str]]) -> List[Dict[str, int | str]]:
+    """
+    Xử lý một batch chunks song song và giữ nguyên thứ tự
+    """
+    results = [None] * len(chunk_batch)  # Pre-allocate với đúng kích thước
+    
+    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+        # Submit tất cả chunks trong batch và lưu index
+        future_to_index = {}
+        for i, chunk in enumerate(chunk_batch):
+            future = executor.submit(grammar_correction_chunk, chunk)
+            future_to_index[future] = i
+        
+        # Collect results và giữ nguyên thứ tự
+        for future in concurrent.futures.as_completed(future_to_index):
+            index = future_to_index[future]
+            try:
+                result = future.result()
+                results[index] = result
+                print(f"    ✓ Chunk {index+1} hoàn thành")
+            except Exception as e:
+                print(f"    ✗ Lỗi chunk {index+1}: {e}")
+                # Fallback: trả về chunk gốc
+                results[index] = chunk_batch[index]
+    
+    # Kiểm tra xem có chunk nào bị thiếu không
+    missing_chunks = [i for i, result in enumerate(results) if result is None]
+    if missing_chunks:
+        print(f"    ⚠️ Cảnh báo: {len(missing_chunks)} chunks bị thiếu: {missing_chunks}")
+        # Thay thế chunks bị thiếu bằng chunks gốc
+        for i in missing_chunks:
+            results[i] = chunk_batch[i]
+    
+    return results
+
+def grammar_correction(subtitles: List[Dict[str, str]], target_chars: int = 1000, overlap: int = 120, batch_size: int = 3) -> List[Dict[str, str]]:
+    """
+    Sửa lỗi ngữ pháp cho subtitles bằng cách chia chunk thông minh với batch processing
+    """
+    if not subtitles:
+        return []
+    
+    # Chuyển đổi format từ transcript format sang chunking format
+    chunking_input = []
+    for subtitle in subtitles:
+        chunking_input.append({
+            'start': int(subtitle['start_time']),
+            'end': int(subtitle['end_time']),
+            'text': subtitle['text']
+        })
+    
+    # Chia thành chunks thông minh
+    chunks = list(chunk_subtitles(chunking_input, target_chars, overlap))
+    corrected_subtitles = []
+    
+    
+    for i in range(0, len(chunks), batch_size):
+        batch = chunks[i:i + batch_size]
+        batch_results = process_chunk_batch(batch)
+        corrected_subtitles.extend(batch_results)
+    
+    if len(corrected_subtitles) != len(chunks):
+        missing_count = len(chunks) - len(corrected_subtitles)
+        for i in range(missing_count):
+            chunk_index = len(corrected_subtitles)
+            if chunk_index < len(chunks):
+                corrected_subtitles.append(chunks[chunk_index])
+
+    return corrected_subtitles
+
+def prepare_subtitle_vectors(subtitles: List[Dict[str, str]]) -> tuple[List[str], List[Dict[str, Any]]]:
+    """
+    Chuẩn bị dữ liệu subtitles cho vector hóa
+    """
+    texts = []
+    metadatas = []
+    
+    for subtitle in subtitles:
+        texts.append(subtitle.get('text', ''))
+        metadatas.append({
+            "video_id": subtitle.get('video_id', 'test_video'),
+            "start_time": subtitle.get('start_time', subtitle.get('start', '')),
+            "end_time": subtitle.get('end_time', subtitle.get('end', '')),
+            "text_length": len(subtitle.get('text', ''))
+        })
+    
+    return texts, metadatas
+    
+    
