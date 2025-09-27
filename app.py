@@ -63,6 +63,7 @@ app = FastAPI(
 class ChatRequest(BaseModel):
     message: str
     video_id: Optional[str] = None
+    session_id: Optional[str] = "default"
 
 # Response Models
 class APIResponse(BaseModel):
@@ -71,55 +72,51 @@ class APIResponse(BaseModel):
     data: Optional[Any] = None
     error: Optional[str] = None
 
-@app.get("/")
-def read_root():
-    return {
-        "message": "Transcript Assistant API",
-        "version": "1.0.0",
-        "endpoints": {
-            "chat": "/chat - params: message, video_id",
-            "process_file": "/process-file (parse, correct, vectorize) - params: file, video_id",
-            "test_upload": "/test-file-upload - test file explorer",
-            "health": "/health"
-        }
-    }
 
-@app.get("/health")
-def health_check():
-    return {"status": "healthy", "message": "API is running"}
-
-@app.post("/test-file-upload")
-async def test_file_upload(file: UploadFile = File(...)):
-    """
-    Test endpoint để kiểm tra file explorer
-    """
-    return {
-        "success": True,
-        "message": f"File đã upload thành công: {file.filename}",
-        "filename": file.filename,
-        "content_type": file.content_type,
-        "size": file.size
-    }
 
 @app.post("/chat", response_model=APIResponse)
 def send_chat(request: ChatRequest):
     """
-    Chat với AI về transcript
+    Chat với AI về transcript - Luôn trả về JSON structured
     
     Args:
         message: Câu hỏi hoặc yêu cầu của người dùng
         video_id: ID của video để tìm kiếm context (optional)
+        session_id: ID của session chat (optional, default: "default")
     """
     try:
-        response = get_response(request.message, request.video_id)
-        return APIResponse(
-            success=True,
-            message="Chat response generated successfully",
-            data={
-                "response": response,
-                "video_id": request.video_id
-            }
+        # Luôn trả về JSON
+        response = get_response(
+            request.message, 
+            request.video_id, 
+            request.session_id
         )
+        
+        try:
+            import json
+            parsed_response = json.loads(response)
+            return APIResponse(
+                success=True,
+                message="Structured JSON response generated successfully",
+                data={
+                    "structured_response": parsed_response,
+                    "video_id": request.video_id,
+                    "session_id": request.session_id,
+                    "format": "json"
+                }
+            )
+        except json.JSONDecodeError:
+            # Fallback nếu JSON parsing thất bại
+            return APIResponse(
+                success=True,
+                message="Response generated (JSON parsing failed, returning raw)",
+                data={
+                    "response": response,
+                    "video_id": request.video_id,
+                    "session_id": request.session_id,
+                    "format": "raw"
+                }
+            )
     except Exception as e:
         return APIResponse(
             success=False,
@@ -127,17 +124,18 @@ def send_chat(request: ChatRequest):
             error=str(e)
         )
 
+
 @app.post("/process-file", response_model=APIResponse)
 async def process_file(
     file: UploadFile = File(...),
     video_id: Optional[str] = Form(None)
 ):
     """
-    Xử lý file SBV: parse, sửa chính tả và vector hóa
+    Xử lý file subtitle: parse, sửa chính tả và vector hóa
     Hỗ trợ upload file qua file explorer
     
     Args:
-        file: File SBV upload (required) - Click "Choose File" để mở file explorer
+        file: File subtitle upload (.sbv/.srt/.vtt) (required) - Click "Choose File" để mở file explorer
         video_id: ID của video để lưu metadata (optional)
     """
     try:
@@ -150,15 +148,16 @@ async def process_file(
             )
         
         # Kiểm tra định dạng file
-        if not file.filename or not file.filename.lower().endswith('.sbv'):
+        if not file.filename or not any(file.filename.lower().endswith(ext) for ext in ['.sbv', '.srt', '.vtt']):
             return APIResponse(
                 success=False,
-                message="Chỉ hỗ trợ file .sbv",
-                error="Invalid file format. Only .sbv files are supported"
+                message="Chỉ hỗ trợ file .sbv, .srt, .vtt",
+                error="Invalid file format. Only .sbv, .srt, .vtt files are supported"
             )
         
-        # Lưu file tạm thời
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.sbv') as temp_file:
+        # Lưu file tạm thời với đúng extension
+        file_extension = os.path.splitext(file.filename)[1].lower()
+        with tempfile.NamedTemporaryFile(delete=False, suffix=file_extension) as temp_file:
             content = await file.read()
             temp_file.write(content)
             temp_file_path = temp_file.name
@@ -228,51 +227,6 @@ async def wipe_database_endpoint():
             error=str(e)
         )
 
-@app.post("/process-file-local", response_model=APIResponse)
-async def process_file_local(
-    file_path: str = Form(...),
-    video_id: Optional[str] = Form(None)
-):
-    """
-    Xử lý file SBV local: parse, sửa chính tả và vector hóa
-    Hỗ trợ file local trên server
-    
-    Args:
-        file_path: Đường dẫn file SBV local (required)
-        video_id: ID của video để lưu metadata (optional)
-    """
-    try:
-        # Kiểm tra file tồn tại
-        if not os.path.exists(file_path):
-            return APIResponse(
-                success=False,
-                message="File không tồn tại",
-                error=f"File not found: {file_path}"
-            )
-        
-        # Kiểm tra định dạng file
-        if not file_path.lower().endswith('.sbv'):
-            return APIResponse(
-                success=False,
-                message="Chỉ hỗ trợ file .sbv",
-                error="Invalid file format. Only .sbv files are supported"
-            )
-        
-        # Xử lý file hoàn chỉnh
-        result = process_subtitle_file(file_path, video_id)
-        
-        return APIResponse(
-            success=True,
-            message=f"Xử lý file thành công: {result['original_count']} → {result['corrected_count']} subtitles",
-            data=result
-        )
-        
-    except Exception as e:
-        return APIResponse(
-            success=False,
-            message="Lỗi xử lý file local",
-            error=str(e)
-        )
 
 @app.get("/database-stats", response_model=APIResponse)
 async def get_database_stats():
@@ -301,6 +255,67 @@ async def get_database_stats():
             message="Lỗi lấy thống kê database",
             error=str(e)
         )
+
+
+# Context Management Endpoints
+@app.get("/context/sessions", response_model=APIResponse)
+async def get_context_sessions():
+    """
+    Lấy danh sách tất cả sessions và thống kê
+    """
+    try:
+        from services.context import get_context_manager
+        
+        context_mgr = get_context_manager()
+        stats = context_mgr.get_session_stats()
+        
+        return APIResponse(
+            success=True,
+            message="Context sessions retrieved successfully",
+            data=stats
+        )
+        
+    except Exception as e:
+        return APIResponse(
+            success=False,
+            message="Lỗi lấy danh sách sessions",
+            error=str(e)
+        )
+
+@app.get("/context/session/{session_id}", response_model=APIResponse)
+async def get_context_session(session_id: str, video_id: Optional[str] = None):
+    """
+    Lấy context của một session cụ thể
+    
+    Args:
+        session_id: ID của session
+        video_id: Filter theo video_id (optional)
+    """
+    try:
+        from services.context import get_context_manager
+        
+        context_mgr = get_context_manager()
+        context = context_mgr.get_context(session_id, video_id)
+        
+        return APIResponse(
+            success=True,
+            message=f"Context for session {session_id} retrieved successfully",
+            data={
+                "session_id": session_id,
+                "video_id": video_id,
+                "message_count": len(context),
+                "context": context
+            }
+        )
+        
+    except Exception as e:
+        return APIResponse(
+            success=False,
+            message="Lỗi lấy context session",
+            error=str(e)
+        )
+
+
 
 
 if __name__ == "__main__":

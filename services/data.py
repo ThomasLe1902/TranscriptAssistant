@@ -105,31 +105,38 @@ def query_data(query: str, k: int = 5, video_id: str = None) -> List[Dict[str, A
         # Tạo embedding cho query
         query_embedding = create_embedding(query)
         
-        # Chuẩn bị filter
-        filter_dict = {}
+        # Chuẩn bị filter với syntax đúng cho Pinecone
+        filter_dict = None
         if video_id:
-            filter_dict["video_id"] = video_id
+            filter_dict = {"video_id": {"$eq": video_id}}
+            print(f"🔍 Querying with video_id filter: {video_id}")
+        else:
+            print("🔍 Querying without video_id filter")
         
         # Tìm kiếm
         results = index.query(
             vector=query_embedding,
             top_k=k,
             include_metadata=True,
-            filter=filter_dict if filter_dict else None
+            filter=filter_dict
         )
         
-        # Format kết quả
+        # Format kết quả và debug
         formatted_results = []
         for match in results.matches:
+            match_video_id = match.metadata.get("video_id", "unknown")
+            print(f"📝 Found match with video_id: {match_video_id}, score: {match.score:.3f}")
             formatted_results.append({
                 "text": match.metadata.get("text", ""),
                 "metadata": match.metadata,
                 "similarity_score": float(match.score)
             })
         
+        print(f"✅ Total results found: {len(formatted_results)}")
         return formatted_results
         
     except Exception as e:
+        print(f"❌ Error in query_data: {e}")
         return []
 
 def get_stats() -> Dict[str, Any]:

@@ -2,7 +2,9 @@ from langchain_google_genai import GoogleGenerativeAI
 from dotenv import load_dotenv
 from typing import List, Dict, Any
 from .chunking import chunk_subtitles
+from prompts.prompts import GRAMMAR_CORRECTION
 import concurrent.futures
+import os
 
 load_dotenv()
 model = GoogleGenerativeAI(model="gemini-2.5-flash")
@@ -70,17 +72,171 @@ def to_ms_sbv(lines: List[str]) -> List[Dict[str, str]]:
     
     return subtitles
 
+def parse_srt(lines: List[str]) -> List[Dict[str, str]]:
+    """
+    Parse SRT format thành list các dict chứa timestamp và text
+    """
+    subtitles = []
+    i = 0
+    
+    while i < len(lines):
+        line = lines[i].strip()
+        
+        # Bỏ qua dòng trống
+        if not line:
+            i += 1
+            continue
+            
+        # Kiểm tra xem có phải số thứ tự không
+        if line.isdigit():
+            i += 1
+            if i >= len(lines):
+                break
+                
+            # Đọc timestamp
+            timestamp_line = lines[i].strip()
+            if ' --> ' in timestamp_line:
+                start_time, end_time = timestamp_line.split(' --> ')
+                
+                # Convert SRT timestamp to milliseconds
+                start_ms = srt_timestamp_to_ms(start_time.strip())
+                end_ms = srt_timestamp_to_ms(end_time.strip())
+                
+                # Đọc text
+                text_lines = []
+                i += 1
+                while i < len(lines) and lines[i].strip():
+                    text_lines.append(lines[i].strip())
+                    i += 1
+                
+                text = ' '.join(text_lines)
+                if text:
+                    subtitles.append({
+                        'start_time': str(start_ms),
+                        'end_time': str(end_ms),
+                        'text': text
+                    })
+        else:
+            i += 1
+    
+    return subtitles
+
+def parse_vtt(lines: List[str]) -> List[Dict[str, str]]:
+    """
+    Parse VTT format thành list các dict chứa timestamp và text
+    """
+    subtitles = []
+    i = 0
+    
+    # Bỏ qua header VTT
+    while i < len(lines) and not lines[i].strip().startswith('00:'):
+        i += 1
+    
+    while i < len(lines):
+        line = lines[i].strip()
+        
+        # Bỏ qua dòng trống
+        if not line:
+            i += 1
+            continue
+            
+        # Kiểm tra timestamp
+        if ' --> ' in line:
+            start_time, end_time = line.split(' --> ')
+            
+            # Convert VTT timestamp to milliseconds
+            start_ms = vtt_timestamp_to_ms(start_time.strip())
+            end_ms = vtt_timestamp_to_ms(end_time.strip())
+            
+            # Đọc text
+            text_lines = []
+            i += 1
+            while i < len(lines) and lines[i].strip():
+                text_lines.append(lines[i].strip())
+                i += 1
+            
+            text = ' '.join(text_lines)
+            if text:
+                subtitles.append({
+                    'start_time': str(start_ms),
+                    'end_time': str(end_ms),
+                    'text': text
+                })
+        else:
+            i += 1
+    
+    return subtitles
+
+def srt_timestamp_to_ms(timestamp: str) -> int:
+    """
+    Convert SRT timestamp (HH:MM:SS,mmm) to milliseconds
+    """
+    # Remove any extra spaces and split
+    parts = timestamp.replace(',', '.').split(':')
+    
+    if len(parts) == 3:
+        hours = int(parts[0])
+        minutes = int(parts[1])
+        seconds_parts = parts[2].split('.')
+        seconds = int(seconds_parts[0])
+        milliseconds = int(seconds_parts[1]) if len(seconds_parts) > 1 else 0
+        
+        total_ms = (hours * 3600 + minutes * 60 + seconds) * 1000 + milliseconds
+        return total_ms
+    
+    return 0
+
+def vtt_timestamp_to_ms(timestamp: str) -> int:
+    """
+    Convert VTT timestamp (HH:MM:SS.mmm) to milliseconds
+    """
+    # Remove any extra spaces and split
+    parts = timestamp.replace('.', ':').split(':')
+    
+    if len(parts) == 4:  # HH:MM:SS:mmm
+        hours = int(parts[0])
+        minutes = int(parts[1])
+        seconds = int(parts[2])
+        milliseconds = int(parts[3])
+        
+        total_ms = (hours * 3600 + minutes * 60 + seconds) * 1000 + milliseconds
+        return total_ms
+    
+    return 0
+
 def get_transcript(file_path: str) -> List[Dict[str, str]]:
-    if file_path.endswith(".sbv"):
-        # Đọc nội dung file thay vì decode file_path
+    """
+    Parse subtitle file dựa trên extension (.sbv, .srt, .vtt)
+    """
+    if not os.path.exists(file_path):
+        return []
+    
+    try:
         with open(file_path, "r", encoding="utf-8", errors="replace") as file:
             lines = file.readlines()
         
-        # Parse SBV thành list các subtitle
-        subtitles = to_ms_sbv(lines)
-        return subtitles
-    
-    return []
+        if file_path.lower().endswith(".sbv"):
+            # Parse SBV format
+            subtitles = to_ms_sbv(lines)
+            return subtitles
+            
+        elif file_path.lower().endswith(".srt"):
+            # Parse SRT format
+            subtitles = parse_srt(lines)
+            return subtitles
+            
+        elif file_path.lower().endswith(".vtt"):
+            # Parse VTT format
+            subtitles = parse_vtt(lines)
+            return subtitles
+            
+        else:
+            print(f"Unsupported file format: {file_path}")
+            return []
+            
+    except Exception as e:
+        print(f"Error reading file {file_path}: {e}")
+        return []
 
 def grammar_correction_chunk(chunk: Dict[str, int | str]) -> Dict[str, int | str]:
     """
@@ -89,12 +245,8 @@ def grammar_correction_chunk(chunk: Dict[str, int | str]) -> Dict[str, int | str
     import time
     start_time = time.time()
     
-    prompt = f"""
-    Sửa lỗi ngữ pháp và cải thiện văn phong cho đoạn text tiếng Việt sau. 
-    Chỉ trả về text đã sửa, không giải thích:
-    
-    {chunk['text']}
-    """
+    # Sử dụng prompt từ file prompts.py
+    prompt = GRAMMAR_CORRECTION.format(text=chunk['text'])
     
     try:
         response = model.invoke(prompt)
