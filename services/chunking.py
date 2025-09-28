@@ -20,19 +20,19 @@ def _tail_by_chars(buf: List[Dict[str, int | str]], overlap: int) -> List[Dict[s
     return list(reversed(out))
 
 
-def _finalize(buf: List[Dict[str, int | str]], start: int, end: int) -> Dict[str, int | str]:
+def _finalize(buf: List[Dict[str, str]], start: str, end: str) -> Dict[str, str]:
     text = _clean_text(" ".join([str(x["text"]) for x in buf]))
     return {"start": start, "end": end, "text": text}
 
 
-def chunk_subtitles(subs: Iterable[Dict[str, int | str]], target_chars: int = 700, overlap: int = 120) -> Iterable[Dict[str, int | str]]:
-    buffer: List[Dict[str, int | str]] = []
-    start: int | None = None
-    end: int | None = None
+def chunk_subtitles(subs: Iterable[Dict[str, str]], target_chars: int = 500, overlap: int = 120) -> Iterable[Dict[str, str]]:
+    buffer: List[Dict[str, str]] = []
+    start: str | None = None
+    end: str | None = None
 
     for s in subs:
         s_text = _clean_text(str(s["text"]))
-        s_item = {"start": int(s["start"]), "end": int(s["end"]), "text": s_text}
+        s_item = {"start": s["start"], "end": s["end"], "text": s_text}  # Giữ nguyên format timestamp
         if start is None:
             start = s_item["start"]
         current_len = sum(len(str(x["text"])) for x in buffer)

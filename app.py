@@ -71,6 +71,12 @@ class APIResponse(BaseModel):
     message: str
     data: Optional[Any] = None
     error: Optional[str] = None
+    
+    class Config:
+        # Đảm bảo response được serialize đúng
+        json_encoders = {
+            # Custom encoders nếu cần
+        }
 
 
 

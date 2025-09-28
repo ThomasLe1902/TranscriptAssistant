@@ -11,18 +11,14 @@ model = GoogleGenerativeAI(model="gemini-2.5-flash")
 
 def format_timestamp(timestamp: str) -> str:
     """
-    Chuyển timestamp từ format h:mm:ss.ms thành milliseconds
+    Giữ nguyên format timestamp gốc để chat có thể xác định mốc thời gian tốt hơn
     """
-    hours, minutes, seconds = timestamp.split(':')
-    seconds, milliseconds = seconds.split('.')
-
-    total_ms = (int(hours) * 3600 + int(minutes) * 60 + int(seconds)) * 1000 + int(milliseconds)
-    return str(total_ms)
+    return timestamp
 
 def to_ms_sbv(lines: List[str]) -> List[Dict[str, str]]:
     """
     Parse SBV format thành list các dict chứa timestamp và text
-    Hỗ trợ cả format h:mm:ss.ms và milliseconds
+    Giữ nguyên format timestamp gốc
     """
     subtitles = []
     i = 0
@@ -39,19 +35,9 @@ def to_ms_sbv(lines: List[str]) -> List[Dict[str, str]]:
                 i += 1
                 continue
             
-            # Kiểm tra xem có phải format milliseconds không (chỉ có số)
-            if start_time.isdigit() and end_time.isdigit():
-                # Format milliseconds - giữ nguyên
-                start_ms = start_time
-                end_ms = end_time
-            elif ':' in start_time and ':' in end_time:
-                # Format h:mm:ss.ms - convert sang milliseconds
-                start_ms = format_timestamp(start_time)
-                end_ms = format_timestamp(end_time)
-            else:
-                # Không phải timestamp hợp lệ, bỏ qua
-                i += 1
-                continue
+            # Giữ nguyên format timestamp gốc
+            start_ms = start_time
+            end_ms = end_time
             
             text_lines = []
             i += 1
@@ -309,7 +295,7 @@ def process_chunk_batch(chunk_batch: List[Dict[str, int | str]]) -> List[Dict[st
     
     return results
 
-def grammar_correction(subtitles: List[Dict[str, str]], target_chars: int = 1000, overlap: int = 120, batch_size: int = 3) -> List[Dict[str, str]]:
+def grammar_correction(subtitles: List[Dict[str, str]], target_chars: int = 500, overlap: int = 120, batch_size: int = 3) -> List[Dict[str, str]]:
     """
     Sửa lỗi ngữ pháp cho subtitles bằng cách chia chunk thông minh với batch processing
     """
@@ -320,8 +306,8 @@ def grammar_correction(subtitles: List[Dict[str, str]], target_chars: int = 1000
     chunking_input = []
     for subtitle in subtitles:
         chunking_input.append({
-            'start': int(subtitle['start_time']),
-            'end': int(subtitle['end_time']),
+            'start': subtitle['start_time'],  # Giữ nguyên format timestamp gốc
+            'end': subtitle['end_time'],      # Giữ nguyên format timestamp gốc
             'text': subtitle['text']
         })
     

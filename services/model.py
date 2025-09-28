@@ -30,8 +30,33 @@ def get_response(message: str, video_id: str = None, session_id: str = "default"
             print(f"📊 Found {len(subtitles)} subtitles")
             
             if subtitles:
-                # Format subtitles thành text
-                subtitle_text = "\n".join([sub.get("text", "") for sub in subtitles])
+                # Format subtitles thành text với timestamp
+                subtitle_lines = []
+                for sub in subtitles:
+                    text = sub.get("text", "")
+                    metadata = sub.get("metadata", {})
+                    start_time = metadata.get("start_time", "")
+                    end_time = metadata.get("end_time", "")
+                    
+                    # Sử dụng format timestamp gốc để chat có thể xác định mốc thời gian tốt hơn
+                    if start_time is not None and start_time != "":
+                        # Nếu là format h:mm:ss.ms, giữ nguyên
+                        if ':' in str(start_time):
+                            time_str = f"[{start_time}]"
+                        # Nếu là milliseconds, convert sang format dễ đọc
+                        elif str(start_time).isdigit():
+                            start_time_num = float(start_time)
+                            start_minutes = int(start_time_num) // 60000
+                            start_seconds = (int(start_time_num) % 60000) // 1000
+                            time_str = f"[{start_minutes}:{start_seconds:02d}]"
+                        else:
+                            time_str = f"[{start_time}]"
+                    else:
+                        time_str = "[?:??]"
+                    
+                    subtitle_lines.append(f"{time_str} {text}")
+                
+                subtitle_text = "\n".join(subtitle_lines)
                 print(f"📝 Using subtitles for context (length: {len(subtitle_text)} chars)")
             else:
                 print("⚠️ No subtitles found for this video_id")
