@@ -2,7 +2,7 @@ import os
 import tempfile
 from typing import List, Dict, Any, Optional
 
-from fastapi import FastAPI, UploadFile, File, Form
+from fastapi import FastAPI, UploadFile, File, Form, APIRouter
 from pydantic import BaseModel
 
 from services.model import get_response
@@ -59,6 +59,9 @@ app = FastAPI(
     version="1.0.0"
 )
 
+# Tạo router với prefix /api/ai
+api_router = APIRouter(prefix="/api/ai")
+
 # Request Models
 class ChatRequest(BaseModel):
     message: str
@@ -80,7 +83,7 @@ class APIResponse(BaseModel):
 
 
 
-@app.post("/chat", response_model=APIResponse)
+@api_router.post("/chat", response_model=APIResponse)
 def send_chat(request: ChatRequest):
     """
     Chat với AI về transcript - Luôn trả về JSON structured
@@ -131,7 +134,7 @@ def send_chat(request: ChatRequest):
         )
 
 
-@app.post("/process-file", response_model=APIResponse)
+@api_router.post("/process-file", response_model=APIResponse)
 async def process_file(
     file: UploadFile = File(...),
     video_id: Optional[str] = Form(None)
@@ -182,8 +185,6 @@ async def process_file(
             # Thêm thông tin file
             if file is not None:
                 result["file_name"] = file.filename
-            else:
-                result["file_path"] = file_path
             
             result["vectorized"] = True
             
@@ -205,7 +206,7 @@ async def process_file(
             error=str(e)
         )
 
-@app.delete("/wipe-database", response_model=APIResponse)
+@api_router.delete("/wipe-database", response_model=APIResponse)
 async def wipe_database_endpoint():
     """
     Xóa tất cả records trong Pinecone index
@@ -234,7 +235,7 @@ async def wipe_database_endpoint():
         )
 
 
-@app.get("/database-stats", response_model=APIResponse)
+@api_router.get("/database-stats", response_model=APIResponse)
 async def get_database_stats():
     """
     Lấy thống kê về database
@@ -264,7 +265,7 @@ async def get_database_stats():
 
 
 # Context Management Endpoints
-@app.get("/context/sessions", response_model=APIResponse)
+@api_router.get("/context/sessions", response_model=APIResponse)
 async def get_context_sessions():
     """
     Lấy danh sách tất cả sessions và thống kê
@@ -288,7 +289,7 @@ async def get_context_sessions():
             error=str(e)
         )
 
-@app.get("/context/session/{session_id}", response_model=APIResponse)
+@api_router.get("/context/session/{session_id}", response_model=APIResponse)
 async def get_context_session(session_id: str, video_id: Optional[str] = None):
     """
     Lấy context của một session cụ thể
@@ -321,8 +322,36 @@ async def get_context_session(session_id: str, video_id: Optional[str] = None):
             error=str(e)
         )
 
+# Thêm router vào app
+app.include_router(api_router)
 
+# Endpoints cơ bản không có prefix
+@app.get("/")
+async def root():
+    """
+    Root endpoint - API information
+    """
+    return {
+        "message": "Transcript Assistant API",
+        "version": "1.0.0",
+        "docs": "/docs",
+        "api_prefix": "/api/ai",
+        "endpoints": {
+            "chat": "POST /api/ai/chat",
+            "process_file": "POST /api/ai/process-file",
+            "database_stats": "GET /api/ai/database-stats",
+            "wipe_database": "DELETE /api/ai/wipe-database",
+            "context_sessions": "GET /api/ai/context/sessions",
+            "context_session": "GET /api/ai/context/session/{session_id}"
+        }
+    }
 
+@app.get("/health")
+async def health_check():
+    """
+    Health check endpoint
+    """
+    return {"status": "healthy", "message": "API is running"}
 
 if __name__ == "__main__":
     import uvicorn
