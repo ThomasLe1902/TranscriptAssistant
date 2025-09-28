@@ -33,7 +33,6 @@ docker run -d -p 8000:8000 -v $(pwd):/app --name transcript-app transcript-assis
 Sau khi chạy thành công, bạn có thể truy cập:
 
 - **API Documentation**: http://localhost:8000/docs
-- **Health Check**: http://localhost:8000/health
 - **Root Endpoint**: http://localhost:8000/
 
 ### 4. Cấu hình Environment Variables
@@ -50,7 +49,6 @@ GOOGLE_API_KEY=your_actual_google_api_key
 
 # Pinecone Configuration (nếu sử dụng)
 PINECONE_API_KEY=your_actual_pinecone_api_key
-PINECONE_ENVIRONMENT=your_actual_environment
 ```
 
 ### 5. Các lệnh Docker hữu ích

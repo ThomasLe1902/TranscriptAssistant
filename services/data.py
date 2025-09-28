@@ -3,12 +3,44 @@ from dotenv import load_dotenv
 from typing import List, Dict, Any
 import uuid
 
+# Import Pinecone at module level
+try:
+    from pinecone import Pinecone
+    import pinecone as pc_old
+    PINECONE_AVAILABLE = True
+except ImportError:
+    PINECONE_AVAILABLE = False
+    print("⚠️ Pinecone not available")
+
 load_dotenv()
 pinecone_api_key = os.getenv("PINECONE_API_KEY")
+pinecone_environment = os.getenv("PINECONE_ENVIRONMENT")
+pinecone_index_name = os.getenv("PINECONE_INDEX_NAME", "transcript-assistant")
 
 # Global model variable
 _model = None
 _use_mock = False
+
+def get_pinecone_index():
+    """
+    Lấy Pinecone index với cách tương thích
+    """
+    if not PINECONE_AVAILABLE:
+        raise Exception("Pinecone not available")
+        
+    try:
+        if pinecone_environment:
+            # Cách cũ
+            pc_old.init(api_key=pinecone_api_key, environment=pinecone_environment)
+            return pc_old.Index(pinecone_index_name)
+        else:
+            # Cách mới
+            pc = Pinecone(api_key=pinecone_api_key)
+            return pc.Index(pinecone_index_name)
+            
+    except Exception as e:
+        print(f"❌ Error getting Pinecone index: {e}")
+        raise e
 
 def get_model():
     """Lazy loading của sentence transformer model"""
@@ -51,12 +83,8 @@ def insert_data(texts: List[str], metadatas: List[Dict[str, Any]]):
     Vector hóa và lưu texts vào Pinecone
     """
     try:
-        # Import Pinecone client
-        from pinecone import Pinecone
-        
-        # Initialize Pinecone
-        pc = Pinecone(api_key=pinecone_api_key)
-        index = pc.Index("subtitles")
+        # Initialize Pinecone với cách tương thích
+        index = get_pinecone_index()
         
         vectors_to_upsert = []
         for i, (text, metadata) in enumerate(zip(texts, metadatas)):
@@ -95,12 +123,8 @@ def query_data(query: str, k: int = 5, video_id: str = None) -> List[Dict[str, A
         video_id: ID video để filter (optional)
     """
     try:
-        # Import Pinecone client
-        from pinecone import Pinecone
-        
-        # Initialize Pinecone
-        pc = Pinecone(api_key=pinecone_api_key)
-        index = pc.Index("subtitles")
+        # Initialize Pinecone với cách tương thích
+        index = get_pinecone_index()
         
         # Tạo embedding cho query
         query_embedding = create_embedding(query)
@@ -138,55 +162,3 @@ def query_data(query: str, k: int = 5, video_id: str = None) -> List[Dict[str, A
     except Exception as e:
         print(f"❌ Error in query_data: {e}")
         return []
-
-def get_stats() -> Dict[str, Any]:
-    """
-    Lấy thống kê về vector store
-    """
-    try:
-        from pinecone import Pinecone
-        pc = Pinecone(api_key=pinecone_api_key)
-        index = pc.Index("subtitles")
-        stats = index.describe_index_stats()
-        return {
-            "total_vectors": stats.total_vector_count,
-            "dimension": stats.dimension,
-            "index_fullness": stats.index_fullness
-        }
-    except Exception as e:
-        return {}
-
-def wipe_database() -> Dict[str, Any]:
-    """
-    Xóa tất cả records trong index
-    """
-    try:
-        from pinecone import Pinecone
-        pc = Pinecone(api_key=pinecone_api_key)
-        index = pc.Index("subtitles")
-        
-        # Lấy thống kê trước khi xóa
-        stats_before = index.describe_index_stats()
-        total_before = stats_before.total_vector_count
-        
-        # Xóa tất cả vectors
-        index.delete(delete_all=True)
-        
-        # Lấy thống kê sau khi xóa
-        stats_after = index.describe_index_stats()
-        total_after = stats_after.total_vector_count
-        
-        return {
-            "success": True,
-            "deleted_vectors": total_before,
-            "remaining_vectors": total_after,
-            "message": f"Successfully deleted {total_before} vectors from database"
-        }
-        
-    except Exception as e:
-        return {
-            "success": False,
-            "error": str(e),
-            "message": "Failed to wipe database"
-        }
-

@@ -74,7 +74,6 @@ GOOGLE_API_KEY=your_google_api_key
 
 # Pinecone Configuration (cho vector storage)
 PINECONE_API_KEY=your_pinecone_api_key
-PINECONE_ENVIRONMENT=your_pinecone_environment
 PINECONE_INDEX_NAME=transcript-assistant
 
 # Application Settings
@@ -93,17 +92,11 @@ Sau khi chạy ứng dụng, truy cập:
 
 - **Swagger UI**: http://localhost:8000/docs
 - **ReDoc**: http://localhost:8000/redoc
-- **Health Check**: http://localhost:8000/health
 
 ### Các endpoint chính:
 
-- `POST /process-file` - Xử lý file subtitle (.sbv/.srt/.vtt) (parse, sửa chính tả, vector hóa)
-- `POST /chat` - Chat với AI về nội dung subtitles (trả về JSON structured với 5 parameters)
-- `GET /context/sessions` - Xem tất cả chat sessions
-- `GET /context/session/{id}` - Xem context của session
-- `DELETE /context/session/{id}` - Xóa context của session
-- `GET /database-stats` - Thống kê database
-- `DELETE /wipe-database` - Xóa tất cả dữ liệu
+- `POST /api/ai/process-file` - Xử lý file subtitle (.sbv/.srt/.vtt) (parse, sửa chính tả, vector hóa)
+- `POST /api/ai/chat` - Chat với AI về nội dung subtitles (trả về JSON structured)
 
 ## 🏗️ Cấu trúc dự án
 
@@ -122,9 +115,12 @@ TranscriptAssistant/
 │   ├── transcript.py    # Subtitle processing (.sbv/.srt/.vtt)
 │   ├── data.py          # Vector storage
 │   ├── context.py       # Chat context management
+│   ├── chunking.py      # Subtitle chunking logic
 │   └── response_parser.py # JSON response parser
 ├── prompts/             # AI prompts
 │   └── prompts.py       # Chat and grammar correction prompts
+├── uploads/             # Uploaded files directory
+└── logs/                # Application logs
 │   └── chunking.py      # Text chunking utilities
 ├── prompts.py           # AI prompts configuration
 └── *.sbv, *.srt, *.vtt  # Sample subtitle files

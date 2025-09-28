@@ -1,13 +1,14 @@
 import os
 import tempfile
 from typing import List, Dict, Any, Optional
+import uvicorn
 
 from fastapi import FastAPI, UploadFile, File, Form, APIRouter
 from pydantic import BaseModel
 
 from services.model import get_response
 from services.transcript import get_transcript, grammar_correction, prepare_subtitle_vectors
-from services.data import insert_data, wipe_database, get_stats
+from services.data import insert_data
 
 def process_subtitle_file(file_path: str, video_id: str = None) -> Dict[str, Any]:
     """
@@ -206,121 +207,6 @@ async def process_file(
             error=str(e)
         )
 
-@api_router.delete("/wipe-database", response_model=APIResponse)
-async def wipe_database_endpoint():
-    """
-    Xóa tất cả records trong Pinecone index
-    """
-    try:
-        result = wipe_database()
-        
-        if result.get("success"):
-            return APIResponse(
-                success=True,
-                message=result.get("message", "Database wiped successfully"),
-                data=result
-            )
-        else:
-            return APIResponse(
-                success=False,
-                message=result.get("message", "Failed to wipe database"),
-                error=result.get("error", "Unknown error")
-            )
-            
-    except Exception as e:
-        return APIResponse(
-            success=False,
-            message="Lỗi xóa database",
-            error=str(e)
-        )
-
-
-@api_router.get("/database-stats", response_model=APIResponse)
-async def get_database_stats():
-    """
-    Lấy thống kê về database
-    """
-    try:
-        stats = get_stats()
-        
-        if stats:
-            return APIResponse(
-                success=True,
-                message="Database stats retrieved successfully",
-                data=stats
-            )
-        else:
-            return APIResponse(
-                success=False,
-                message="Failed to retrieve database stats",
-                error="No stats available"
-            )
-            
-    except Exception as e:
-        return APIResponse(
-            success=False,
-            message="Lỗi lấy thống kê database",
-            error=str(e)
-        )
-
-
-# Context Management Endpoints
-@api_router.get("/context/sessions", response_model=APIResponse)
-async def get_context_sessions():
-    """
-    Lấy danh sách tất cả sessions và thống kê
-    """
-    try:
-        from services.context import get_context_manager
-        
-        context_mgr = get_context_manager()
-        stats = context_mgr.get_session_stats()
-        
-        return APIResponse(
-            success=True,
-            message="Context sessions retrieved successfully",
-            data=stats
-        )
-        
-    except Exception as e:
-        return APIResponse(
-            success=False,
-            message="Lỗi lấy danh sách sessions",
-            error=str(e)
-        )
-
-@api_router.get("/context/session/{session_id}", response_model=APIResponse)
-async def get_context_session(session_id: str, video_id: Optional[str] = None):
-    """
-    Lấy context của một session cụ thể
-    
-    Args:
-        session_id: ID của session
-        video_id: Filter theo video_id (optional)
-    """
-    try:
-        from services.context import get_context_manager
-        
-        context_mgr = get_context_manager()
-        context = context_mgr.get_context(session_id, video_id)
-        
-        return APIResponse(
-            success=True,
-            message=f"Context for session {session_id} retrieved successfully",
-            data={
-                "session_id": session_id,
-                "video_id": video_id,
-                "message_count": len(context),
-                "context": context
-            }
-        )
-        
-    except Exception as e:
-        return APIResponse(
-            success=False,
-            message="Lỗi lấy context session",
-            error=str(e)
-        )
 
 # Thêm router vào app
 app.include_router(api_router)
@@ -338,21 +224,10 @@ async def root():
         "api_prefix": "/api/ai",
         "endpoints": {
             "chat": "POST /api/ai/chat",
-            "process_file": "POST /api/ai/process-file",
-            "database_stats": "GET /api/ai/database-stats",
-            "wipe_database": "DELETE /api/ai/wipe-database",
-            "context_sessions": "GET /api/ai/context/sessions",
-            "context_session": "GET /api/ai/context/session/{session_id}"
+            "process_file": "POST /api/ai/process-file"
         }
     }
 
-@app.get("/health")
-async def health_check():
-    """
-    Health check endpoint
-    """
-    return {"status": "healthy", "message": "API is running"}
 
 if __name__ == "__main__":
-    import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

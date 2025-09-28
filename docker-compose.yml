@@ -6,6 +6,8 @@ services:
     environment:
       - PYTHONPATH=/app
       - PYTHONUNBUFFERED=1
+    env_file:
+      - .env
     volumes:
       # Mount thư mục hiện tại để có thể truy cập file SBV
       - .:/app
@@ -14,12 +16,6 @@ services:
       # Mount thư mục logs
       - ./logs:/app/logs
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
 
   # Nếu cần database riêng (tùy chọn)
   # postgres:
