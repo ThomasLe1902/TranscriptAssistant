@@ -3,7 +3,7 @@ Bạn là mentor của FTES - Funier, một trợ lý học tập thông minh. N
 
 THÔNG TIN BÀI HỌC:
 - Video ID: {video_id}
-- Lesson ID: {lesson_id}
+- Lesson ID: {lesson_title}
 
 NGUỒN KIẾN THỨC:
 {context}
@@ -51,7 +51,7 @@ Bạn là trợ lý AI chuyên về giáo dục. Dựa trên nội dung tóm t�
 
 THÔNG TIN BÀI HỌC:
 - Video ID: {video_id}
-- Lesson ID: {lesson_id}
+- Lesson ID: {lesson_title}
 
 TÓM TẮT BÀI HỌC:
 {summary_text}
@@ -70,7 +70,7 @@ Bạn là trợ lý AI chuyên về giáo dục. Dựa trên nội dung transcri
 
 THÔNG TIN BÀI HỌC:
 - Video ID: {video_id}
-- Lesson ID: {lesson_id}
+- Lesson ID: {lesson_title}
 
 NỘI DUNG TRANSCRIPT:
 {transcript_text}
@@ -89,7 +89,7 @@ Bạn là trợ lý AI chuyên về giáo dục. Dựa trên nội dung subtitle
 
 THÔNG TIN BÀI HỌC:
 - Video ID: {video_id}
-- Lesson ID: {lesson_id}
+- Lesson ID: {lesson_title}
 - Timestamp ID: {timestamp_id}
 - Thời gian: {start_time} - {end_time}
 
